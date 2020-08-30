@@ -59,6 +59,8 @@ func (p *Builder) Label(l *Label) *Builder {
 		reservedExpr.Expr = defval
 		return p
 	}
+	// make sure all labels in golang code  will be used
+	p.Jmp(l)
 	p.labels = append(p.labels, l)
 	return p
 }
@@ -88,7 +90,10 @@ func GotoIf(p *Builder, cond ast.Expr, l *Label) *ast.IfStmt {
 }
 
 // JmpIf instr
-func (p *Builder) JmpIf(jc exec.JmpCond, l *Label) *Builder {
+func (p *Builder) JmpIf(jc exec.JmpCondFlag, l *Label) *Builder {
+	if jc.IsNotPop() {
+		return p
+	}
 	cond := p.rhs.Pop().(ast.Expr)
 	switch jc {
 	case exec.JcFalse:
@@ -390,6 +395,34 @@ func (p *Builder) EndComprehension(c *Comprehension) *Builder {
 		},
 	})
 	p.comprehens = c.old
+	return p
+}
+
+// Defer instr
+func (p *Builder) Defer() *Builder {
+	p.inDeferOrGo = callByDefer
+	return p
+}
+
+// Go instr
+func (p *Builder) Go() *Builder {
+	p.inDeferOrGo = callByGo
+	return p
+}
+
+// DefineBlock starts a new block.
+func (p *Builder) DefineBlock() *Builder {
+	p.scopeCtx = &scopeCtx{parentCtx: p.scopeCtx}
+	p.initStmts()
+	return p
+}
+
+// EndBlock ends a block.
+func (p *Builder) EndBlock() *Builder {
+	p.endBlockStmt(0)
+	blockStmt := &ast.BlockStmt{List: p.getStmts(p)}
+	p.scopeCtx = p.parentCtx
+	p.stmts = append(p.stmts, p.labeled(blockStmt, 0))
 	return p
 }
 

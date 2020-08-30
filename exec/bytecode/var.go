@@ -157,17 +157,17 @@ func getParentCtx(p *Context, idx tAddress) *varScope {
 }
 
 // GetVar func.
-func (p *Context) GetVar(x *Var) interface{} {
+func (ctx *Context) GetVar(x *Var) interface{} {
 	if x.isGlobal() {
-		return p.getVar(x.idx)
+		return ctx.getVar(x.idx)
 	}
 	panic("variable not defined, or not a global variable")
 }
 
 // SetVar func.
-func (p *Context) SetVar(x *Var, v interface{}) {
+func (ctx *Context) SetVar(x *Var, v interface{}) {
 	if x.isGlobal() {
-		p.setVar(x.idx, v)
+		ctx.setVar(x.idx, v)
 		return
 	}
 	panic("variable not defined, or not a global variable")
@@ -237,6 +237,7 @@ func (p *Builder) storeVar(addr tAddress) *Builder {
 // Var represents a variable.
 type Var struct {
 	typ       reflect.Type
+	actualTyp reflect.Type
 	name      string
 	nestDepth uint32
 	idx       uint32
@@ -244,7 +245,8 @@ type Var struct {
 
 // NewVar creates a variable instance.
 func NewVar(typ reflect.Type, name string) *Var {
-	return &Var{typ: typ, name: "Q" + name, idx: 0xffffffff}
+	totyp := toType(typ)
+	return &Var{typ: totyp, name: "Q" + name, idx: 0xffffffff, actualTyp: typ}
 }
 
 func (p *Var) isGlobal() bool {
@@ -253,7 +255,7 @@ func (p *Var) isGlobal() bool {
 
 // Type returns variable's type.
 func (p *Var) Type() reflect.Type {
-	return p.typ
+	return p.actualTyp
 }
 
 // Name returns variable's name.
@@ -308,6 +310,28 @@ func (p *varManager) addVars(vars ...exec.Var) {
 	}
 }
 
+func toType(typ reflect.Type) reflect.Type {
+	if typ.Kind() == reflect.Ptr {
+		temp := typ.Elem()
+		structType := toType(temp)
+		return reflect.PtrTo(structType)
+	}
+
+	if typ.Kind() == reflect.Struct && typ.Name() == "" {
+		var fields = make([]StructField, 0, typ.NumField())
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			fields = append(fields, StructField{
+				Type: toType(field.Type),
+				Name: "Q" + field.Name,
+			})
+		}
+
+		typ = Struct(fields).Type()
+	}
+	return typ
+}
+
 type blockCtx struct {
 	varManager
 	parent *varManager
@@ -319,8 +343,8 @@ func newBlockCtx(nestDepth uint32, parent *varManager) *blockCtx {
 
 // -----------------------------------------------------------------------------
 
-func (p *Context) getNestDepth() (nestDepth uint32) {
-	vs := &p.varScope
+func (ctx *Context) getNestDepth() (nestDepth uint32) {
+	vs := &ctx.varScope
 	for {
 		if vs = vs.parent; vs == nil {
 			return

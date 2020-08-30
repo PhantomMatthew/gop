@@ -26,6 +26,24 @@ import (
 
 // -----------------------------------------------------------------------------
 
+// StructType instr
+func StructType(p *Builder, typ reflect.Type) ast.Expr {
+	var fields = &ast.FieldList{}
+	for i := 0; i < typ.NumField(); i++ {
+		fields.List = append(fields.List, toStructField(p, typ.Field(i)))
+	}
+	return &ast.StructType{Fields: fields}
+}
+
+func toStructField(p *Builder, f reflect.StructField) *ast.Field {
+	var field = &ast.Field{}
+	field.Names = []*ast.Ident{
+		Ident(f.Name),
+	}
+	field.Type = Type(p, f.Type)
+	return field
+}
+
 // MapType instr
 func MapType(p *Builder, typ reflect.Type) *ast.MapType {
 	key := Type(p, typ.Key())
@@ -116,7 +134,12 @@ func FuncType(p *Builder, typ reflect.Type) *ast.FuncType {
 }
 
 // Type instr
-func Type(p *Builder, typ reflect.Type) ast.Expr {
+func Type(p *Builder, typ reflect.Type, actualTypes ...bool) ast.Expr {
+	if len(actualTypes) == 0 || (len(actualTypes) > 0 && !actualTypes[0]) {
+		if gtype, ok := p.types[typ]; ok {
+			return Ident(gtype.Name())
+		}
+	}
 	pkgPath, name := typ.PkgPath(), typ.Name()
 	log.Debug(typ, "-", "pkgPath:", pkgPath, "name:", name)
 	if name != "" {
@@ -140,9 +163,32 @@ func Type(p *Builder, typ reflect.Type) ast.Expr {
 		return InterfaceType(p, typ)
 	case reflect.Chan:
 	case reflect.Struct:
+		return StructType(p, typ)
 	}
 	log.Panicln("Type: unknown type -", typ)
 	return nil
 }
 
 // -----------------------------------------------------------------------------
+
+type GoType struct {
+	name string
+	typ  reflect.Type
+}
+
+// DefineVar defines types.
+func (p *Builder) DefineType(typ reflect.Type, name string) *Builder {
+	p.types[typ] = &GoType{
+		name: name,
+		typ:  typ,
+	}
+	return p
+}
+
+func (p *GoType) Type() reflect.Type {
+	return p.typ
+}
+
+func (p *GoType) Name() string {
+	return p.name
+}

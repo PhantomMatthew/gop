@@ -78,6 +78,10 @@ func isNoExecCtxStmt(ctx *blockCtx, stmt ast.Stmt) bool {
 		return true
 	case *ast.LabeledStmt:
 		return true
+	case *ast.DeferStmt:
+		return isNoExecCtxCallExpr(ctx, v.Call)
+	case *ast.GoStmt:
+		return isNoExecCtxCallExpr(ctx, v.Call)
 	default:
 		log.Panicln("isNoExecCtxStmt failed: unknown -", reflect.TypeOf(v))
 	}
@@ -97,6 +101,8 @@ func isNoExecCtxExpr(ctx *blockCtx, expr ast.Expr) bool {
 	case *ast.UnaryExpr:
 		return isNoExecCtxExpr(ctx, v.X)
 	case *ast.SelectorExpr:
+		return isNoExecCtxExpr(ctx, v.X)
+	case *ast.ParenExpr:
 		return isNoExecCtxExpr(ctx, v.X)
 	case *ast.ErrWrapExpr:
 		return isNoExecCtx2nd(ctx, v.X, v.Default)
@@ -343,7 +349,7 @@ func isNoExecCtxAssignStmt(ctx *blockCtx, expr *ast.AssignStmt) bool {
 	return true
 }
 
-func isNoExecCtxExprLHS(ctx *blockCtx, expr ast.Expr, mode compleMode) bool {
+func isNoExecCtxExprLHS(ctx *blockCtx, expr ast.Expr, mode compileMode) bool {
 	switch v := expr.(type) {
 	case *ast.Ident:
 		return isNoExecCtxIdentLHS(ctx, v.Name, mode)
@@ -357,21 +363,21 @@ func isNoExecCtxExprLHS(ctx *blockCtx, expr ast.Expr, mode compleMode) bool {
 	return true
 }
 
-func isNoExecCtxIndexExprLHS(ctx *blockCtx, v *ast.IndexExpr, mode compleMode) bool {
+func isNoExecCtxIndexExprLHS(ctx *blockCtx, v *ast.IndexExpr, mode compileMode) bool {
 	if noExecCtx := isNoExecCtxExpr(ctx, v.X); !noExecCtx {
 		return false
 	}
 	return isNoExecCtxExpr(ctx, v.Index)
 }
 
-func isNoExecCtxIdentLHS(ctx *blockCtx, name string, mode compleMode) bool {
+func isNoExecCtxIdentLHS(ctx *blockCtx, name string, mode compileMode) bool {
 	if mode == lhsDefine && !ctx.exists(name) {
 		ctx.insertVar(name, exec.TyEmptyInterface, true)
 	}
 	return true
 }
 
-func isNoExecCtxSelectorExprLHS(ctx *blockCtx, v *ast.SelectorExpr, mode compleMode) bool {
+func isNoExecCtxSelectorExprLHS(ctx *blockCtx, v *ast.SelectorExpr, mode compileMode) bool {
 	if noExecCtx := isNoExecCtxExpr(ctx, v.X); !noExecCtx {
 		return false
 	}

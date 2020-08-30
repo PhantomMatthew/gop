@@ -69,8 +69,10 @@ func (p *Var) setScope(where *scopeCtx) {
 // -----------------------------------------------------------------------------
 
 type scopeCtx struct {
-	vlist []exec.Var
-	stmts []ast.Stmt
+	parentCtx *scopeCtx
+	vlist     []exec.Var
+	stmts     []ast.Stmt
+	labels    []*Label // labels of current statement
 }
 
 func (p *scopeCtx) addVar(vars ...exec.Var) {
@@ -139,6 +141,9 @@ func (p *Builder) Store(idx int32) *Builder {
 
 func (p *Builder) argIdent(idx int32) *ast.Ident {
 	i := len(p.cfun.in) + int(idx)
+	if i == -1 {
+		return Ident("recv")
+	}
 	return Ident(toArg(i))
 }
 

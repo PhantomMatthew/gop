@@ -37,6 +37,12 @@ func compileBlockStmtWithout(ctx *blockCtx, body *ast.BlockStmt) {
 	}
 }
 
+func compileNewBlock(ctx *blockCtx, block *ast.BlockStmt) {
+	ctx.out.DefineBlock()
+	compileBlockStmtWith(ctx, block)
+	ctx.out.EndBlock()
+}
+
 func compileBodyWith(ctx *blockCtx, body []ast.Stmt) {
 	ctxWith := newNormBlockCtx(ctx)
 	for _, stmt := range body {
@@ -62,7 +68,7 @@ func compileStmt(ctx *blockCtx, stmt ast.Stmt) {
 	case *ast.ForStmt:
 		compileForStmt(ctx, v)
 	case *ast.BlockStmt:
-		compileBlockStmtWith(ctx, v)
+		compileNewBlock(ctx, v)
 	case *ast.ReturnStmt:
 		compileReturnStmt(ctx, v)
 	case *ast.IncDecStmt:
@@ -71,6 +77,10 @@ func compileStmt(ctx *blockCtx, stmt ast.Stmt) {
 		compileBranchStmt(ctx, v)
 	case *ast.LabeledStmt:
 		compileLabeledStmt(ctx, v)
+	case *ast.DeferStmt:
+		compileDeferStmt(ctx, v)
+	case *ast.GoStmt:
+		compileGoStmt(ctx, v)
 	case *ast.EmptyStmt:
 		// do nothing
 	default:
@@ -88,16 +98,18 @@ func compileForPhraseStmt(parent *blockCtx, v *ast.ForPhraseStmt) {
 }
 
 func compileRangeStmt(parent *blockCtx, v *ast.RangeStmt) {
-	noExecCtx := isNoExecCtx(parent, v.Body)
-	f := ast.ForPhrase{
-		For:    v.For,
-		TokPos: v.TokPos,
-		X:      v.X,
-	}
+	kvDef := map[string]reflect.Type{}
+	newIterName := "_gop_NewIter"
+	nextName := "_gop_Next"
+	keyName := "_gop_Key"
+	valueName := "_gop_Value"
+	iter := &ast.Ident{Name: "_gop_iter", NamePos: v.For}
+
+	var keyIdent, valIdent *ast.Ident
 	switch v.Tok {
 	case token.DEFINE:
-		f.Key = toIdent(v.Key)
-		f.Value = toIdent(v.Value)
+		keyIdent = toIdent(v.Key)
+		valIdent = toIdent(v.Value)
 	case token.ASSIGN:
 		var lhs, rhs [2]ast.Expr
 		var idx int
@@ -108,8 +120,8 @@ func compileRangeStmt(parent *blockCtx, v *ast.RangeStmt) {
 			}
 			if assign {
 				k0 := ast.NewObj(ast.Var, "_gop_k")
-				f.Key = &ast.Ident{Name: k0.Name, Obj: k0}
-				lhs[idx], rhs[idx] = v.Key, f.Key
+				keyIdent = &ast.Ident{Name: k0.Name, Obj: k0}
+				lhs[idx], rhs[idx] = v.Key, keyIdent
 				idx++
 			}
 		}
@@ -120,8 +132,8 @@ func compileRangeStmt(parent *blockCtx, v *ast.RangeStmt) {
 			}
 			if assign {
 				v0 := ast.NewObj(ast.Var, "_gop_v")
-				f.Value = &ast.Ident{Name: v0.Name, Obj: v0}
-				lhs[idx], rhs[idx] = v.Value, f.Value
+				valIdent = &ast.Ident{Name: v0.Name, Obj: v0}
+				lhs[idx], rhs[idx] = v.Value, valIdent
 				idx++
 			}
 		}
@@ -131,10 +143,86 @@ func compileRangeStmt(parent *blockCtx, v *ast.RangeStmt) {
 			Rhs: rhs[0:idx],
 		}}, v.Body.List...)
 	}
-	ctx, exprFor := compileForPhrase(parent, f, noExecCtx)
-	exprFor(func() {
-		compileBlockStmtWithout(ctx, v.Body)
-	})
+
+	compileExpr(parent, v.X)
+	typData := boundType(parent.infer.Pop().(iValue))
+	var typKey, typVal reflect.Type
+	var forStmts []ast.Stmt
+	switch kind := typData.Kind(); kind {
+	case reflect.String:
+		typKey = exec.TyInt
+		typVal = exec.TyByte
+	case reflect.Slice, reflect.Array:
+		typKey = exec.TyInt
+		typVal = typData.Elem()
+	case reflect.Map:
+		typKey = typData.Key()
+		typVal = typData.Elem()
+	default:
+		log.Panicln("compileRangeStmt: require slice, array or map")
+	}
+	if keyIdent != nil {
+		// Key(iter,&k)
+		if id, ok := v.Key.(*ast.Ident); !ok || (ok && id.Name != "_") {
+			kvDef[keyIdent.Name] = typKey
+			forStmts = append(forStmts, &ast.ExprStmt{X: &ast.CallExpr{
+				Fun: &ast.Ident{Name: keyName, NamePos: v.For},
+				Args: []ast.Expr{iter, &ast.UnaryExpr{
+					Op: token.AND,
+					X:  keyIdent,
+				}},
+			}})
+		}
+	}
+	if valIdent != nil {
+		// Value(iter,&v)
+		if id, ok := v.Value.(*ast.Ident); !ok || (ok && id.Name != "_") {
+			kvDef[valIdent.Name] = typVal
+			forStmts = append(forStmts, &ast.ExprStmt{X: &ast.CallExpr{
+				Fun: &ast.Ident{Name: valueName, NamePos: v.For},
+				Args: []ast.Expr{iter, &ast.UnaryExpr{
+					Op: token.AND,
+					X:  valIdent,
+				}},
+			}})
+		}
+	}
+	// iter:=_gop_NewIter(obj)
+	init := &ast.AssignStmt{
+		Lhs: []ast.Expr{iter},
+		Tok: token.DEFINE,
+		Rhs: []ast.Expr{&ast.CallExpr{
+			Fun:    &ast.Ident{Name: newIterName},
+			Lparen: v.For,
+			Rparen: v.For,
+			Args:   []ast.Expr{v.X},
+		}},
+		TokPos: v.For,
+	}
+	// range => for
+	fs := &ast.ForStmt{
+		For: v.For,
+		Cond: &ast.CallExpr{
+			Fun:    &ast.Ident{Name: nextName},
+			Lparen: v.For,
+			Rparen: v.For,
+			Args:   []ast.Expr{iter},
+		},
+		Post: nil,
+		Body: &ast.BlockStmt{
+			Lbrace: v.Body.Lbrace,
+			List:   append(forStmts, v.Body.List...),
+			Rbrace: v.Body.Rbrace,
+		},
+	}
+	parent.out.DefineBlock()
+	defer parent.out.EndBlock()
+	ctx := newNormBlockCtx(parent)
+	for k, v := range kvDef {
+		ctx.insertVar(k, v)
+	}
+	compileStmt(ctx, init)
+	compileStmt(ctx, fs)
 }
 
 func toIdent(e ast.Expr) *ast.Ident {
@@ -145,9 +233,11 @@ func toIdent(e ast.Expr) *ast.Ident {
 }
 
 func compileForStmt(ctx *blockCtx, v *ast.ForStmt) {
-	if v.Init != nil {
-		ctx = newNormBlockCtx(ctx)
-		compileStmt(ctx, v.Init)
+	if init := v.Init; init != nil {
+		v.Init = nil
+		block := &ast.BlockStmt{List: []ast.Stmt{init, v}}
+		compileNewBlock(ctx, block)
+		return
 	}
 	out := ctx.out
 	start := ctx.NewLabel("")
@@ -221,12 +311,31 @@ func compileBranchStmt(ctx *blockCtx, v *ast.BranchStmt) {
 
 func compileLabeledStmt(ctx *blockCtx, v *ast.LabeledStmt) {
 	label := ctx.defineLabel(v.Label.Name)
-	// make sure all labels in golang code  will be used
-	// TODO improvement exec/bytecode not to jump if delta==0
-	ctx.out.Jmp(label)
 	ctx.out.Label(label)
 	ctx.currentLabel = v
 	compileStmt(ctx, v.Stmt)
+}
+
+type callType int
+
+const (
+	callExpr callType = iota
+	callByDefer
+	callByGo
+)
+
+var gCallTypes = []string{
+	"",
+	"defer",
+	"go",
+}
+
+func compileGoStmt(ctx *blockCtx, v *ast.GoStmt) {
+	compileCallExpr(ctx, v.Call, callByGo)()
+}
+
+func compileDeferStmt(ctx *blockCtx, v *ast.DeferStmt) {
+	compileCallExpr(ctx, v.Call, callByDefer)()
 }
 
 func compileSwitchStmt(ctx *blockCtx, v *ast.SwitchStmt) {
@@ -386,7 +495,11 @@ func compileIfStmt(ctx *blockCtx, v *ast.IfStmt) {
 	}
 	out.Label(label)
 	if hasElse {
-		compileStmt(ctxIf, v.Else)
+		if ve, ok := v.Else.(*ast.BlockStmt); ok {
+			compileBlockStmtWithout(ctx, ve)
+		} else {
+			compileStmt(ctxIf, v.Else)
+		}
 		out.Label(done)
 	}
 }
@@ -429,6 +542,14 @@ func compileReturnStmt(ctx *blockCtx, expr *ast.ReturnStmt) {
 
 func compileExprStmt(ctx *blockCtx, expr *ast.ExprStmt) {
 	compileExpr(ctx, expr.X)()
+	if ctx.infer.Len() > 0 {
+		in := ctx.infer.Get(-1)
+		if v, ok := in.(*constVal); ok {
+			for i := 0; i < v.NumValues(); i++ {
+				checkType(exec.TyEmptyInterface, v.Value(i), ctx.out)
+			}
+		}
+	}
 	ctx.infer.PopN(1)
 }
 

@@ -110,7 +110,7 @@ func (p *iBuilder) Jmp(l exec.Label) exec.Builder {
 }
 
 // JmpIf instr
-func (p *iBuilder) JmpIf(cond exec.JmpCond, l exec.Label) exec.Builder {
+func (p *iBuilder) JmpIf(cond exec.JmpCondFlag, l exec.Label) exec.Builder {
 	((*Builder)(p)).JmpIf(cond, l.(*Label))
 	return p
 }
@@ -125,6 +125,17 @@ func (p *iBuilder) CaseNE(l exec.Label, arity int) exec.Builder {
 func (p *iBuilder) Default() exec.Builder {
 	((*Builder)(p)).Default()
 	return p
+}
+
+// Defer instr
+func (p *iBuilder) Defer() exec.Builder {
+	((*Builder)(p)).Defer()
+	return p
+}
+
+// Go instr
+func (p *iBuilder) Go() exec.Builder {
+	return ((*Builder)(p)).Go()
 }
 
 // WrapIfErr instr
@@ -272,6 +283,12 @@ func (p *iBuilder) DefineVar(vars ...exec.Var) exec.Builder {
 	return p
 }
 
+// DefineType name string,reflect.Type instr
+func (p *iBuilder) DefineType(typ reflect.Type, name string) exec.Builder {
+	// Nothing todo in bytecode
+	return p
+}
+
 // InCurrentCtx returns if a variable is in current context or not.
 func (p *iBuilder) InCurrentCtx(v exec.Var) bool {
 	return ((*Builder)(p)).InCurrentCtx(v.(*Var))
@@ -310,6 +327,24 @@ func (p *iBuilder) StoreGoVar(addr GoVarAddr) exec.Builder {
 // AddrGoVar instr
 func (p *iBuilder) AddrGoVar(addr GoVarAddr) exec.Builder {
 	((*Builder)(p)).AddrGoVar(addr)
+	return p
+}
+
+// LoadField instr
+func (p *iBuilder) LoadField(typ reflect.Type, index []int) exec.Builder {
+	((*Builder)(p)).LoadField(typ, index)
+	return p
+}
+
+// AddrField instr
+func (p *iBuilder) AddrField(typ reflect.Type, index []int) exec.Builder {
+	((*Builder)(p)).AddrField(typ, index)
+	return p
+}
+
+// StoreField instr
+func (p *iBuilder) StoreField(typ reflect.Type, index []int) exec.Builder {
+	((*Builder)(p)).StoreField(typ, index)
 	return p
 }
 
@@ -361,9 +396,21 @@ func (p *iBuilder) Index(idx int) exec.Builder {
 	return p
 }
 
+// AddrIndex instr
+func (p *iBuilder) AddrIndex(idx int) exec.Builder {
+	((*Builder)(p)).AddrIndex(idx)
+	return p
+}
+
 // SetIndex instr
 func (p *iBuilder) SetIndex(idx int) exec.Builder {
 	((*Builder)(p)).SetIndex(idx)
+	return p
+}
+
+// Struct instr
+func (p *iBuilder) Struct(typ reflect.Type, arity int) exec.Builder {
+	((*Builder)(p)).Struct(typ, arity)
 	return p
 }
 
@@ -397,6 +444,12 @@ func (p *iBuilder) Zero(typ reflect.Type) exec.Builder {
 	return p
 }
 
+// New instr
+func (p *iBuilder) New(typ reflect.Type) exec.Builder {
+	((*Builder)(p)).New(typ)
+	return p
+}
+
 // StartStmt receives a `StartStmt` event.
 func (p *iBuilder) StartStmt(stmt interface{}) interface{} {
 	return nil
@@ -425,6 +478,16 @@ func (p *iBuilder) GetPackage() exec.Package {
 // Resolve resolves all unresolved labels/functions/consts/etc.
 func (p *iBuilder) Resolve() exec.Code {
 	return ((*Builder)(p)).Resolve()
+}
+
+// DefineBlock
+func (p *iBuilder) DefineBlock() exec.Builder {
+	return p
+}
+
+// EndBlock
+func (p *iBuilder) EndBlock() exec.Builder {
+	return p
 }
 
 // -----------------------------------------------------------------------------
