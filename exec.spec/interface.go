@@ -54,12 +54,6 @@ func (p Reserved) Push(b Builder, val interface{}) {
 	b.ReservedAsPush(p, val)
 }
 
-// BreakAsReturn - todo
-const BreakAsReturn = -2
-
-// ContinueAsReturn - todo
-const ContinueAsReturn = -3
-
 // ForPhrase represents a for range phrase.
 type ForPhrase interface {
 }
@@ -278,6 +272,9 @@ type Builder interface {
 	// Load instr
 	Load(idx int32) Builder
 
+	// Addr instr
+	Addr(idx int32) Builder
+
 	// Store instr
 	Store(idx int32) Builder
 
@@ -336,7 +333,7 @@ type Builder interface {
 	Append(typ reflect.Type, arity int) Builder
 
 	// MapIndex instr
-	MapIndex() Builder
+	MapIndex(twoValue bool) Builder
 
 	// SetMapIndex instr
 	SetMapIndex() Builder
@@ -388,6 +385,12 @@ type Builder interface {
 
 	// EndBlock instr
 	EndBlock() Builder
+
+	// Send instr
+	Send() Builder
+
+	// Recv instr
+	Recv() Builder
 }
 
 // Package represents a Go+ package.

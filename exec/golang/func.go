@@ -192,10 +192,14 @@ func (p *Builder) CallFunc(fun *FuncInfo, nexpr int) *Builder {
 // CallFuncv instr
 func (p *Builder) CallFuncv(fun *FuncInfo, nexpr, arity int) *Builder {
 	if fun.isMethod == 1 {
-		args := p.rhs.GetArgs(arity)
+		n := arity
+		if arity < 0 {
+			n = len(fun.in) + 1
+		}
+		args := p.rhs.GetArgs(n)
 		recv := args[0]
 		args = args[1:]
-		p.rhs.Ret(arity, args...)
+		p.rhs.Ret(n, args...)
 		p.rhs.Push(fun.getFuncExpr(recv.(ast.Expr)))
 	} else {
 		p.rhs.Push(fun.getFuncExpr(nil))
@@ -216,27 +220,18 @@ func (p *Builder) DefineFunc(fun exec.FuncInfo) *Builder {
 func (p *Builder) Return(n int32) *Builder {
 	var results []ast.Expr
 	var stmt ast.Stmt
-	switch n {
-	case exec.BreakAsReturn:
-		stmt = &ast.BranchStmt{
-			Tok: token.BREAK,
-		}
-	case exec.ContinueAsReturn:
-		stmt = &ast.BranchStmt{
-			Tok: token.CONTINUE,
-		}
-	default:
-		if n > 0 {
-			arity := int(n)
-			args := p.rhs.GetArgs(arity)
-			results = make([]ast.Expr, n)
-			for i, arg := range args {
-				results[i] = arg.(ast.Expr)
+	if n > 0 {
+		arity := int(n)
+		args := p.rhs.GetArgs(arity)
+		for _, arg := range args {
+			if v, ok := arg.(ast.Expr); ok {
+				results = append(results, v)
 			}
-			p.rhs.PopN(arity)
 		}
-		stmt = &ast.ReturnStmt{Results: results}
+		arity = len(results)
+		p.rhs.PopN(arity)
 	}
+	stmt = &ast.ReturnStmt{Results: results}
 	p.rhs.Push(stmt)
 	return p
 }
@@ -254,7 +249,7 @@ func (p *Builder) EndFunc(fun *FuncInfo) *Builder {
 		}
 		if fun.isMethod == 1 {
 			params := make([]*ast.Field, 1)
-			params[0] = Field(p, "recv", fun.recv, "", false)
+			params[0] = Field(p, "_recv", fun.recv, "", false)
 			fn.Recv = &ast.FieldList{Opening: 1, List: params, Closing: 1}
 		}
 		p.gblDecls = append(p.gblDecls, fn)

@@ -172,6 +172,18 @@ func (p *iBuilder) Defer() exec.Builder {
 	return p
 }
 
+// Send instr
+func (p *iBuilder) Send() exec.Builder {
+	((*Builder)(p)).Send()
+	return p
+}
+
+// Recv instr
+func (p *iBuilder) Recv() exec.Builder {
+	((*Builder)(p)).Recv()
+	return p
+}
+
 // Go instr
 func (p *iBuilder) Go() exec.Builder {
 	((*Builder)(p)).Go()
@@ -278,6 +290,12 @@ func (p *iBuilder) Return(n int32) exec.Builder {
 // Load instr
 func (p *iBuilder) Load(idx int32) exec.Builder {
 	((*Builder)(p)).Load(idx)
+	return p
+}
+
+// Addr instr
+func (p *iBuilder) Addr(idx int32) exec.Builder {
+	((*Builder)(p)).Addr(idx)
 	return p
 }
 
@@ -395,7 +413,7 @@ func (p *iBuilder) Make(typ reflect.Type, arity int) exec.Builder {
 }
 
 // MapIndex instr
-func (p *iBuilder) MapIndex() exec.Builder {
+func (p *iBuilder) MapIndex(twoValue bool) exec.Builder {
 	((*Builder)(p)).MapIndex()
 	return p
 }
